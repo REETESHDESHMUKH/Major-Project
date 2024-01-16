@@ -4,7 +4,7 @@ pragma solidity ^0.8;
 contract Main {
     // ------------------------variables--------------------------------------------------
     uint256 totalUsers = 0;
-    uint256 totalRequests = 0;
+    uint256 totalCampaigns = 0;
     uint256 totalComplaints = 0;
     uint256 totalFarms = 0;
     uint256 totalOfficers = 0;
@@ -21,7 +21,7 @@ contract Main {
         uint256[] complaintsRaised;
         uint256[] contributions;
     }
-    struct Request {
+    struct Campaign {
         uint256 farmId;
         uint256 deadline;
         uint256 currentAmount;
@@ -58,7 +58,7 @@ contract Main {
         uint256 securityAmount;
         uint256 fundRaised;
         string[] documents;
-        uint[] requests;
+        uint[] campaigns;
         address[] contributors;
         mapping(address => uint256) investments;
     }
@@ -68,12 +68,12 @@ contract Main {
     mapping(address => Officer) officers;
     mapping(uint256 => Complaint) complaints;
     mapping(uint256 => Farm) farms;
-    mapping(uint256 => Request) requests;
+    mapping(uint256 => Campaign) campaigns;
 
     // ------------------constructor----------------------------------------------------
     constructor() {
         totalUsers = 0;
-        totalRequests = 0;
+        totalCampaigns = 0;
         totalComplaints = 0;
         totalFarms = 0;
         totalOfficers = 0;
@@ -88,17 +88,16 @@ contract Main {
         return complaints[id];
     }
 
-    function getRequestInvestmentDetails(uint id) public view returns (uint256) {
-        return requests[id].investments[msg.sender];
+    function getCampaignInvestmentDetails(uint id) public view returns (uint256) {
+        return campaigns[id].investments[msg.sender];
     }
 
-    function getRequestCurrentAmount(uint id) public view returns (uint256) {
-        return requests[id].currentAmount;
+    function getCampaignCurrentAmount(uint id) public view returns (uint256) {
+        return campaigns[id].currentAmount;
     }
     function getFarmFundRaisedDetials(uint256 id) public view returns (uint256) {
         return farms[id].fundRaised;
     }
-
 
     // -------------------functions-----------------------------------------------------
     function registerUser(string memory description) public {
@@ -156,21 +155,21 @@ contract Main {
         users[address(msg.sender)].complaintsRaised.push(totalComplaints);
     }
 
-    function createRequest(
+    function createCampaign(
         uint256 farmId,
         uint256 deadline,
         uint256 targetAmount,
         string memory description,
         address receiver
     ) public {
-        totalRequests += 1;
-        requests[totalRequests].farmId = farmId;
-        requests[totalRequests].deadline = deadline;
-        requests[totalRequests].targetAmount = targetAmount;
-        requests[totalRequests].description = description;
-        requests[totalRequests].receiver = receiver;
-        requests[totalRequests].status = Status.PENDING;
-        farms[farmId].requests.push(totalRequests);
+        totalCampaigns += 1;
+        campaigns[totalCampaigns].farmId = farmId;
+        campaigns[totalCampaigns].deadline = deadline;
+        campaigns[totalCampaigns].targetAmount = targetAmount;
+        campaigns[totalCampaigns].description = description;
+        campaigns[totalCampaigns].receiver = receiver;
+        campaigns[totalCampaigns].status = Status.PENDING;
+        farms[farmId].campaigns.push(totalCampaigns);
     }
 
     function registerOfficer(string memory description) public {
@@ -192,45 +191,57 @@ contract Main {
         }
     }
 
-    function fundToRequest(uint id) public payable {
-        requests[id].currentAmount += msg.value;
-        requests[id].contributors.push(address(msg.sender));
-        requests[id].investments[address(msg.sender)] += msg.value;
+    function fundToCampaign(uint id) public payable {
+        campaigns[id].currentAmount += msg.value;
+        //check 
+        campaigns[id].contributors.push(address(msg.sender));
+        campaigns[id].investments[address(msg.sender)] += msg.value;
     }
 
-    function acceptRequestInvestment(uint id) public {
-        payable(requests[id].receiver).transfer(requests[id].targetAmount);
-        requests[id].status = Status.ACCEPTED;
-        address[] memory contributor = requests[id].contributors;
-        uint256 farmId = requests[id].farmId;
+    // cehckIfCampaingEndedAndcampaignInvestment
+    function acceptCampaignInvestment(uint id) public {
+        payable(campaigns[id].receiver).transfer(campaigns[id].currentAmount);
+        campaigns[id].status = Status.ACCEPTED;
+        address[] memory contributor = campaigns[id].contributors;
+        uint256 farmId = campaigns[id].farmId;
 
         for(uint256 i=0; i<contributor.length; i++) {
             if(farms[farmId].investments[contributor[i]] == 0) {
                 farms[farmId].contributors.push(contributor[i]);
             }
-            farms[farmId].investments[contributor[i]] += requests[id].investments[contributor[i]];
+            farms[farmId].investments[contributor[i]] += campaigns[id].investments[contributor[i]];
         }
 
-        farms[farmId].fundRaised += requests[id].targetAmount;
-        requests[id].currentAmount = 0;
+        farms[farmId].fundRaised += campaigns[id].targetAmount;
+        campaigns[id].currentAmount = 0;
     }
 
-    function rejectRequestInvestment(uint id) public {
-        requests[id].status = Status.REJECTED;
-        address[] memory contributor = requests[id].contributors;
+    function rejectCampaignInvestment(uint id) public {
+        campaigns[id].status = Status.REJECTED;
+        address[] memory contributor = campaigns[id].contributors;
         for(uint256 i = 0; i < contributor.length; i++) {
-            payable(contributor[i]).transfer(requests[id].investments[contributor[i]]);
-            requests[id].investments[contributor[i]] = 0;
+            payable(contributor[i]).transfer(campaigns[id].investments[contributor[i]]);
+            campaigns[id].investments[contributor[i]] = 0;
         }
     }
 
-    function updateComplaintStatus(uint id,bool isAccepted) public returns (address) {
+    function updateComplaintStatus(uint id,bool isAccepted) public {
+        // check only if officer is making the request
         if(isAccepted) {
             payable(complaints[id].creater).transfer(farms[complaints[id].farmId].securityAmount/5);
             complaints[id].status = Status.ACCEPTED;
-            return complaints[id].creater;
         } else {
             complaints[id].status = Status.REJECTED;
         }
+    }
+
+    function distributeRewardsToInvesters(uint256 campaignId) external returns (bool) {
+        for(uint256 i=0;i<campaigns[campaignId].contributors.length;i+=1){
+            uint256 total = campaigns[campaignId].currentAmount;
+            uint256 precentage =  campaigns[campaignId].investments[campaigns[campaignId].contributors[i]]/total;
+            uint256 amt = precentage*campaigns[campaignId].currentAmount;
+            payable(campaigns[campaignId].contributors[i]).transfer(amt);
+        }
+        return true;
     }
 }
